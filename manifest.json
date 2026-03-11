@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "Zoho Deluge Formatter",
+  "version": "1.1",
+  "description": "Formats Zoho Deluge code and detects missing semicolons in real-time.",
+
+  "permissions": [
+    "scripting",
+    "activeTab",
+    "tabs"
+  ],
+
+  "host_permissions": [
+    "https://*.zoho.com/*",
+    "https://*.zohoapis.com/*",
+    "https://*.zoho.in/*"
+  ],
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "action": {
+    "default_title": "Format Deluge Code",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+
+  "commands": {
+    "format-deluge": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+F",
+        "mac": "Command+Shift+F"
+      },
+      "description": "Format Deluge code in the active editor"
+    },
+    "check-semicolon": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "Activate real-time semicolon checker"
+    }
+  }
+}
