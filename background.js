@@ -4,7 +4,7 @@ function injectScripts(tab, files) {
     if (!tab || !tab.url) return;
     const restricted = ['chrome://', 'edge://', 'about:', 'chrome-extension://'];
     if (restricted.some(p => tab.url.startsWith(p))) return;
-    if (!tab.url.includes('zoho.com') && !tab.url.includes('zohoapis.com')) return;
+    if (!/zoho\.(com|in)/.test(tab.url) && !tab.url.includes('zohoapis.com')) return;
 
     chrome.scripting.executeScript({
         target: { tabId: tab.id },
