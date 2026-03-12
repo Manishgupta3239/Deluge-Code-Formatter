@@ -1,36 +1,45 @@
 // background.js
-// Service worker — handles toolbar icon click and auto-injects on Zoho pages.
 
 function injectScripts(tab, files) {
-    if (!tab.url) return;
+    if (!tab || !tab.url) return;
     const restricted = ['chrome://', 'edge://', 'about:', 'chrome-extension://'];
     if (restricted.some(p => tab.url.startsWith(p))) return;
+    if (!tab.url.includes('zoho.com') && !tab.url.includes('zohoapis.com')) return;
 
     chrome.scripting.executeScript({
         target: { tabId: tab.id },
         world: 'MAIN',
         files: files
     }).then(() => {
-        console.log('[Deluge Extension] Injected:', files, 'into', tab.url);
+        console.log('[Deluge Extension] Injected:', files);
     }).catch(err => {
-        console.error('[Deluge Extension] Injection failed:', err);
+        // Ignore errors for tabs that aren't ready
+        console.warn('[Deluge Extension] Injection skipped:', err.message);
     });
 }
 
-// ── Toolbar icon click → run formatter ──────────────────────
+// ── Toolbar icon click → format only ────────────────────────
 chrome.action.onClicked.addListener((tab) => {
     injectScripts(tab, ['formatter.js', 'content.js']);
 });
 
-// ── Auto-inject on Zoho page load ───────────────────────────
-// Injects: formatter (so button works), button, semicolon checker
+// ── Page fully loaded → inject everything ───────────────────
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-    if (
-        changeInfo.status === 'complete' &&
-        tab.url &&
-        (tab.url.includes('zoho.com') || tab.url.includes('zohoapis.com'))
-    ) {
-        // formatter.js must come first so formatDeluge is available to the button
-        injectScripts(tab, ['formatter.js', 'inject-button.js', 'semicolon.js']);
+    if (changeInfo.status === 'complete') {
+        // Small delay to let Zoho's JS finish initializing
+        setTimeout(function () {
+            injectScripts(tab, ['formatter.js', 'inject-button.js', 'semicolon.js']);
+        }, 1000);
     }
+});
+
+// ── Tab switched to → re-inject to catch freshly opened editors ─
+chrome.tabs.onActivated.addListener((activeInfo) => {
+    chrome.tabs.get(activeInfo.tabId, function (tab) {
+        if (chrome.runtime.lastError) return;
+        // Inject with a delay so the editor has time to open
+        setTimeout(function () {
+            injectScripts(tab, ['formatter.js', 'inject-button.js', 'semicolon.js']);
+        }, 1500);
+    });
 });

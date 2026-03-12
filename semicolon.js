@@ -1,21 +1,22 @@
 /**
  * semicolon.js
  * Real-time missing semicolon detector for Zoho Deluge editor.
+ * Uses paren-depth tracking to avoid false positives inside
+ * multi-line function calls like zoho.crm.updateRecord(..., {"trigger":{"workflow"}});
  */
 
 (function () {
     'use strict';
 
-    // Prevent double-injection
     if (window.__delugeCheckerRunning) return;
     window.__delugeCheckerRunning = true;
 
-    const GUTTER_ID = 'deluge-semicolon-gutter';
+    const GUTTER_ID  = 'deluge-semicolon-gutter';
     const DEBOUNCE_MS = 600;
     let debounceTimer = null;
 
     // ─────────────────────────────────────────
-    // Patterns — lines that do NOT need a semicolon
+    // Lines that never need a semicolon
     // ─────────────────────────────────────────
     const NO_SEMI = [
         /^\s*$/,
@@ -29,10 +30,19 @@
         /^\s*else\b/,
         /^\s*for\b/,
         /^\s*while\s*\(/,
-        /^\s*invokeurl\s*$/,
-        /^\s*sendmail\s*$/,
-        /^\s*(url|type|connection|parameters|from|to|bcc|subject|message)\s*:/i,
+        // FIX: catches "x = invokeurl" and standalone invokeurl
+        /invokeurl\s*$/,
+        /sendmail\s*$/,
+        // FIX: try / catch / finally blocks
+        /^\s*try\s*$/,
+        /^\s*catch\s*/,
+        /^\s*finally\s*$/,
+        // FIX: invokeurl bracket params — added "headers"
+        /^\s*(url|type|connection|parameters|from|to|cc|bcc|subject|message|headers)\s*:/i,
         /\{\s*$/,
+        /,\s*$/,                   // ends with comma → continuation line
+        /^\s*"[^"]*"\s*:/,         // "key": map key
+        /^\s*'[^']*'\s*:/,         // 'key': map key
         /^\s*break\s*$/,
         /^\s*continue\s*$/,
         /^\s*return\s*$/,
@@ -45,77 +55,127 @@
         return true;
     }
 
-    function isMissing(line) {
-        return needsSemi(line) && !line.trim().endsWith(';');
+    // ─────────────────────────────────────────
+    // Count unquoted open/close parens in a line
+    // ─────────────────────────────────────────
+    function countParens(line) {
+        let depth = 0;
+        let inStr = false;
+        let strCh = '';
+        for (let i = 0; i < line.length; i++) {
+            const ch = line[i];
+            if (!inStr && (ch === '"' || ch === "'")) {
+                inStr = true; strCh = ch;
+            } else if (inStr && ch === strCh && line[i - 1] !== '\\') {
+                inStr = false;
+            } else if (!inStr) {
+                if (ch === '(') depth++;
+                else if (ch === ')') depth--;
+            }
+        }
+        return depth;
     }
 
     // ─────────────────────────────────────────
-    // Red dot marker
+    // Scan all lines — return line numbers missing semicolons
+    // Lines inside open parens are skipped entirely
+    // ─────────────────────────────────────────
+    function getMissingLines(cm) {
+        const missing = [];
+        let parenDepth = 0;
+        const total = cm.lineCount();
+
+        for (let i = 0; i < total; i++) {
+            const line = cm.getLine(i);
+            const t = line.trim();
+            const delta = countParens(line);
+
+            // Inside open paren = multi-line argument, skip
+            if (parenDepth > 0) {
+                parenDepth += delta;
+                continue;
+            }
+
+            if (needsSemi(line) && !t.endsWith(';')) {
+                missing.push(i);
+            }
+
+            parenDepth += delta;
+            if (parenDepth < 0) parenDepth = 0;
+        }
+        return missing;
+    }
+
+    // ─────────────────────────────────────────
+    // Red dot gutter marker
     // ─────────────────────────────────────────
     function makeMarker() {
         const dot = document.createElement('span');
         dot.title = 'Missing semicolon';
-        dot.style.cssText = [
-            'display:inline-block',
-            'width:7px',
-            'height:7px',
-            'border-radius:50%',
-            'background:#e53935',
-            'margin-top:5px',
-            'margin-left:2px',
-            'box-shadow:0 0 4px rgba(229,57,53,0.8)',
-        ].join(';');
+        dot.style.cssText = 'display:inline-block;width:7px;height:7px;border-radius:50%;background:#e53935;margin-top:5px;margin-left:2px;box-shadow:0 0 4px rgba(229,57,53,0.8);';
         return dot;
     }
 
     // ─────────────────────────────────────────
-    // Status bar
+    // Fix — insert semicolons on all missing lines
     // ─────────────────────────────────────────
-    function updateBar(count) {
-        let bar = document.getElementById('deluge-semi-bar');
-        if (!bar) {
-            bar = document.createElement('div');
-            bar.id = 'deluge-semi-bar';
-            bar.style.cssText = [
-                'position:fixed',
-                'bottom:0',
-                'left:0',
-                'right:0',
-                'z-index:99999',
-                'background:#1a1a2e',
-                'color:#ccc',
-                'font-size:12px',
-                'font-family:monospace',
-                'padding:4px 14px',
-                'border-top:1px solid #333',
-                'pointer-events:none',
-            ].join(';');
-            document.body.appendChild(bar);
-        }
-        bar.innerHTML = count === 0
-            ? '<span style="color:#4caf50">✓</span>&nbsp; No missing semicolons'
-            : '<span style="color:#e53935">●</span>&nbsp; <b style="color:#e53935">' + count + '</b> missing semicolon' + (count > 1 ? 's' : '');
+    function fixAllSemicolons(cm) {
+        const missingLines = getMissingLines(cm);
+        if (missingLines.length === 0) return 0;
+
+        cm.operation(function () {
+            for (let idx = 0; idx < missingLines.length; idx++) {
+                const lineNum  = missingLines[idx];
+                const lineText = cm.getLine(lineNum);
+                cm.replaceRange(';',
+                    { line: lineNum, ch: lineText.length },
+                    { line: lineNum, ch: lineText.length }
+                );
+            }
+        });
+
+        return missingLines.length;
     }
 
     // ─────────────────────────────────────────
-    // Run the check
+    // Run the full check
     // ─────────────────────────────────────────
     function runCheck(cm) {
         try {
             cm.clearGutter(GUTTER_ID);
-            let count = 0;
-            const total = cm.lineCount();
-            for (let i = 0; i < total; i++) {
-                if (isMissing(cm.getLine(i))) {
-                    cm.setGutterMarker(i, GUTTER_ID, makeMarker());
-                    count++;
-                }
+            const missing = getMissingLines(cm);
+
+            for (const lineNum of missing) {
+                cm.setGutterMarker(lineNum, GUTTER_ID, makeMarker());
             }
-            updateBar(count);
+
+            // Notify toolbar buttons
+            if (window.__delugeSemicolon && window.__delugeSemicolon.onCount) {
+                window.__delugeSemicolon.onCount(missing.length);
+            }
         } catch (e) {
             console.warn('[Deluge Semicolon] runCheck error:', e);
         }
     }
+
+    // ─────────────────────────────────────────
+    // Public API — used by inject-button.js
+    // ─────────────────────────────────────────
+    window.__delugeSemicolon = {
+        onCount: null,
+        fix: function () {
+            const cm = window.__delugeSemicolon._cm;
+            if (!cm) return 0;
+            const fixed = fixAllSemicolons(cm);
+            setTimeout(function () { runCheck(cm); }, 100);
+            return fixed;
+        },
+        recheck: function () {
+            const cm = window.__delugeSemicolon._cm;
+            if (cm) runCheck(cm);
+        },
+        _cm: null,
+    };
 
     // ─────────────────────────────────────────
     // Attach to CodeMirror
@@ -123,53 +183,28 @@
     function attach(cm) {
         if (cm._delugeCheckerAttached) return;
         cm._delugeCheckerAttached = true;
+        window.__delugeSemicolon._cm = cm;
+        window.__delugeCheckerRunning = true;
 
         try {
-            // Add our custom gutter
             const existing = cm.getOption('gutters') || [];
             if (!existing.includes(GUTTER_ID)) {
                 cm.setOption('gutters', existing.concat([GUTTER_ID]));
             }
 
-            // Inject CSS
             if (!document.getElementById('deluge-semi-css')) {
                 const s = document.createElement('style');
                 s.id = 'deluge-semi-css';
-                s.textContent = '.deluge-semicolon-gutter { width: 12px !important; background: #111; }';
+                s.textContent = '.deluge-semicolon-gutter{width:12px !important;background:#111;}';
                 document.head.appendChild(s);
             }
 
-            // Listen for changes
             cm.on('change', function () {
                 clearTimeout(debounceTimer);
                 debounceTimer = setTimeout(function () { runCheck(cm); }, DEBOUNCE_MS);
             });
 
-            // Initial check
             runCheck(cm);
-
-            // Toast
-            const toast = document.createElement('div');
-            toast.textContent = '● Semicolon checker active';
-            toast.style.cssText = [
-                'position:fixed',
-                'top:20px',
-                'right:20px',
-                'z-index:999999',
-                'background:#1565c0',
-                'color:#fff',
-                'padding:8px 16px',
-                'border-radius:6px',
-                'font:13px sans-serif',
-                'box-shadow:0 4px 12px rgba(0,0,0,.3)',
-                'transition:opacity .4s ease',
-            ].join(';');
-            document.body.appendChild(toast);
-            setTimeout(function () {
-                toast.style.opacity = '0';
-                setTimeout(function () { toast.remove(); }, 400);
-            }, 2500);
-
             console.log('[Deluge Semicolon] Attached successfully.');
 
         } catch (e) {
@@ -178,13 +213,13 @@
     }
 
     // ─────────────────────────────────────────
-    // Find CodeMirror and attach
+    // Find CodeMirror and attach — retry up to 60s
     // ─────────────────────────────────────────
     function findAndAttach() {
         try {
             const els = document.querySelectorAll('.CodeMirror');
             for (const el of els) {
-                if (el.CodeMirror) {
+                if (el.CodeMirror && !el.CodeMirror._delugeCheckerAttached) {
                     attach(el.CodeMirror);
                     return true;
                 }
@@ -195,18 +230,23 @@
         return false;
     }
 
-    // Try now, retry every 500ms up to 15 seconds if editor not ready
-    if (!findAndAttach()) {
-        let tries = 0;
-        const interval = setInterval(function () {
-            tries++;
-            if (findAndAttach() || tries >= 30) {
-                clearInterval(interval);
-                if (tries >= 30) {
-                    console.warn('[Deluge Semicolon] Could not find CodeMirror after 30 attempts.');
-                }
+    // Try immediately, then retry every 500ms
+    findAndAttach();
+
+    let tries = 0;
+    const interval = setInterval(function () {
+        tries++;
+
+        // inject-button.js reset the flag → re-attach to new editor
+        if (window.__delugeCheckerRunning === false) {
+            window.__delugeCheckerRunning = true;
+            const els = document.querySelectorAll('.CodeMirror');
+            for (const el of els) {
+                if (el.CodeMirror) el.CodeMirror._delugeCheckerAttached = false;
             }
-        }, 500);
-    }
+        }
+
+        if (findAndAttach() || tries >= 120) clearInterval(interval);
+    }, 500);
 
 })();
