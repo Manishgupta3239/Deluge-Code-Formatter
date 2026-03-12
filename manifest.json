@@ -21,28 +21,6 @@
   },
 
   "action": {
-    "default_title": "Format Deluge Code",
-    "default_icon": {
-      "16": "icons/icon16.png",
-      "48": "icons/icon48.png",
-      "128": "icons/icon128.png"
-    }
-  },
-
-  "commands": {
-    "format-deluge": {
-      "suggested_key": {
-        "default": "Ctrl+Shift+F",
-        "mac": "Command+Shift+F"
-      },
-      "description": "Format Deluge code in the active editor"
-    },
-    "check-semicolon": {
-      "suggested_key": {
-        "default": "Ctrl+Shift+S",
-        "mac": "Command+Shift+S"
-      },
-      "description": "Activate real-time semicolon checker"
-    }
+    "default_title": "Format Deluge Code"
   }
 }

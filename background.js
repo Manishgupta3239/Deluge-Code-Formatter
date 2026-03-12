@@ -1,8 +1,6 @@
 // background.js
-// Service worker — handles toolbar icon clicks and keyboard shortcuts.
-// Two commands:
-//   1. format-deluge   → injects formatter.js + content.js
-//   2. check-semicolon → injects semicolon-checker.js
+// Service worker — handles toolbar icon click only.
+// Injects formatter on click, auto-injects semicolon checker on Zoho page load.
 
 /**
  * Injects scripts into the active tab's MAIN world.
@@ -28,29 +26,13 @@ chrome.action.onClicked.addListener((tab) => {
     injectScripts(tab, ['formatter.js', 'content.js']);
 });
 
-// ── Keyboard shortcuts ───────────────────────────────────────
-chrome.commands.onCommand.addListener((command) => {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (!tabs || !tabs[0]) return;
-        const tab = tabs[0];
-
-        if (command === 'format-deluge') {
-            // Ctrl+Shift+F → format code
-            injectScripts(tab, ['formatter.js', 'content.js']);
-        } else if (command === 'check-semicolon') {
-            // Ctrl+Shift+S → activate semicolon checker
-            injectScripts(tab, ['semicolon-checker.js']);
-        }
-    });
-});
-
-// ── Auto-inject semicolon checker when Zoho tab loads ───────
+// ── Auto-inject semicolon checker when Zoho tab fully loads ─
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (
         changeInfo.status === 'complete' &&
         tab.url &&
         (tab.url.includes('zoho.com') || tab.url.includes('zohoapis.com'))
     ) {
-        injectScripts(tab, ['semicolon-checker.js']);
+        injectScripts(tab, ['semicolon.js']);
     }
 });
