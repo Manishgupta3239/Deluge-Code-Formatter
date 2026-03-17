@@ -11,16 +11,36 @@
     if (window.__delugeCheckerRunning) return;
     window.__delugeCheckerRunning = true;
 
-    const GUTTER_ID  = 'deluge-semicolon-gutter';
+    const GUTTER_ID   = 'deluge-semicolon-gutter';
     const DEBOUNCE_MS = 600;
     let debounceTimer = null;
+
+    // ─────────────────────────────────────────
+    // Strip inline comment from end of line
+    // e.g. 'x = 1; // comment' → 'x = 1;'
+    // Handles quoted strings so '//' inside strings is ignored
+    // ─────────────────────────────────────────
+    function stripInlineComment(line) {
+        let inStr = false, strCh = '';
+        for (let i = 0; i < line.length - 1; i++) {
+            const ch = line[i];
+            if (!inStr && (ch === '"' || ch === "'")) { inStr = true; strCh = ch; continue; }
+            if (inStr && ch === strCh && line[i - 1] !== '\\') { inStr = false; continue; }
+            if (!inStr && ch === '/' && line[i + 1] === '/') {
+                return line.slice(0, i).trimEnd();
+            }
+        }
+        return line;
+    }
 
     // ─────────────────────────────────────────
     // Lines that never need a semicolon
     // ─────────────────────────────────────────
     const NO_SEMI = [
         /^\s*$/,
-        /^\s*\/\//,
+        /^\s*\/\//,                // line comment
+        /^\s*\/\*/,                // FIX: block comment start  /* ... */
+        /^\s*\*[\s/]/,             // FIX: block comment middle/end  * ...  or  */
         /^\s*\{/,
         /^\s*\}/,
         /^\s*\[/,
@@ -30,19 +50,16 @@
         /^\s*else\b/,
         /^\s*for\b/,
         /^\s*while\s*\(/,
-        // FIX: catches "x = invokeurl" and standalone invokeurl
         /invokeurl\s*$/,
         /sendmail\s*$/,
-        // FIX: try / catch / finally blocks
         /^\s*try\s*$/,
         /^\s*catch\s*/,
         /^\s*finally\s*$/,
-        // FIX: invokeurl bracket params — added "headers"
         /^\s*(url|type|connection|parameters|from|to|cc|bcc|subject|message|headers)\s*:/i,
         /\{\s*$/,
-        /,\s*$/,                   // ends with comma → continuation line
-        /^\s*"[^"]*"\s*:/,         // "key": map key
-        /^\s*'[^']*'\s*:/,         // 'key': map key
+        /,\s*$/,
+        /^\s*"[^"]*"\s*:/,
+        /^\s*'[^']*'\s*:/,
         /^\s*break\s*$/,
         /^\s*continue\s*$/,
         /^\s*return\s*$/,
@@ -56,19 +73,25 @@
     }
 
     // ─────────────────────────────────────────
+    // Check if line already ends with semicolon
+    // strips inline comment first:
+    // 'x = 1; // note' → ends with ';' ✓
+    // ─────────────────────────────────────────
+    function hasSemicolon(line) {
+        const stripped = stripInlineComment(line).trim();
+        return stripped.endsWith(';');
+    }
+
+    // ─────────────────────────────────────────
     // Count unquoted open/close parens in a line
     // ─────────────────────────────────────────
     function countParens(line) {
-        let depth = 0;
-        let inStr = false;
-        let strCh = '';
+        let depth = 0, inStr = false, strCh = '';
         for (let i = 0; i < line.length; i++) {
             const ch = line[i];
-            if (!inStr && (ch === '"' || ch === "'")) {
-                inStr = true; strCh = ch;
-            } else if (inStr && ch === strCh && line[i - 1] !== '\\') {
-                inStr = false;
-            } else if (!inStr) {
+            if (!inStr && (ch === '"' || ch === "'")) { inStr = true; strCh = ch; continue; }
+            if (inStr && ch === strCh && line[i - 1] !== '\\') { inStr = false; continue; }
+            if (!inStr) {
                 if (ch === '(') depth++;
                 else if (ch === ')') depth--;
             }
@@ -77,17 +100,41 @@
     }
 
     // ─────────────────────────────────────────
+    // Track block comments across lines
+    // ─────────────────────────────────────────
+    function isInsideBlockComment(line, blockCommentActive) {
+        const t = line.trim();
+        if (blockCommentActive) {
+            // Still inside block comment — check if it ends here
+            if (t.includes('*/')) return { skip: true, active: false };
+            return { skip: true, active: true };
+        }
+        // Check if block comment starts on this line
+        if (t.startsWith('/*')) {
+            // Does it also end on same line?
+            if (t.includes('*/')) return { skip: true, active: false };
+            return { skip: true, active: true };
+        }
+        return { skip: false, active: false };
+    }
+
+    // ─────────────────────────────────────────
     // Scan all lines — return line numbers missing semicolons
-    // Lines inside open parens are skipped entirely
     // ─────────────────────────────────────────
     function getMissingLines(cm) {
         const missing = [];
         let parenDepth = 0;
+        let inBlockComment = false;
         const total = cm.lineCount();
 
         for (let i = 0; i < total; i++) {
             const line = cm.getLine(i);
-            const t = line.trim();
+
+            // Block comment tracking
+            const bc = isInsideBlockComment(line, inBlockComment);
+            inBlockComment = bc.active;
+            if (bc.skip) continue;
+
             const delta = countParens(line);
 
             // Inside open paren = multi-line argument, skip
@@ -96,7 +143,7 @@
                 continue;
             }
 
-            if (needsSemi(line) && !t.endsWith(';')) {
+            if (needsSemi(line) && !hasSemicolon(line)) {
                 missing.push(i);
             }
 
@@ -124,12 +171,14 @@
         if (missingLines.length === 0) return 0;
 
         cm.operation(function () {
-            for (let idx = 0; idx < missingLines.length; idx++) {
-                const lineNum  = missingLines[idx];
+            for (const lineNum of missingLines) {
                 const lineText = cm.getLine(lineNum);
+                // Insert before inline comment if present
+                const stripped = stripInlineComment(lineText);
+                const insertAt = stripped.length;
                 cm.replaceRange(';',
-                    { line: lineNum, ch: lineText.length },
-                    { line: lineNum, ch: lineText.length }
+                    { line: lineNum, ch: insertAt },
+                    { line: lineNum, ch: insertAt }
                 );
             }
         });
@@ -144,12 +193,9 @@
         try {
             cm.clearGutter(GUTTER_ID);
             const missing = getMissingLines(cm);
-
             for (const lineNum of missing) {
                 cm.setGutterMarker(lineNum, GUTTER_ID, makeMarker());
             }
-
-            // Notify toolbar buttons
             if (window.__delugeSemicolon && window.__delugeSemicolon.onCount) {
                 window.__delugeSemicolon.onCount(missing.length);
             }
@@ -159,7 +205,7 @@
     }
 
     // ─────────────────────────────────────────
-    // Public API — used by inject-button.js
+    // Public API
     // ─────────────────────────────────────────
     window.__delugeSemicolon = {
         onCount: null,
@@ -206,14 +252,13 @@
 
             runCheck(cm);
             console.log('[Deluge Semicolon] Attached successfully.');
-
         } catch (e) {
             console.error('[Deluge Semicolon] Attach error:', e);
         }
     }
 
     // ─────────────────────────────────────────
-    // Find CodeMirror and attach — retry up to 60s
+    // Find CodeMirror and attach
     // ─────────────────────────────────────────
     function findAndAttach() {
         try {
@@ -230,14 +275,11 @@
         return false;
     }
 
-    // Try immediately, then retry every 500ms
     findAndAttach();
 
     let tries = 0;
     const interval = setInterval(function () {
         tries++;
-
-        // inject-button.js reset the flag → re-attach to new editor
         if (window.__delugeCheckerRunning === false) {
             window.__delugeCheckerRunning = true;
             const els = document.querySelectorAll('.CodeMirror');
@@ -245,7 +287,6 @@
                 if (el.CodeMirror) el.CodeMirror._delugeCheckerAttached = false;
             }
         }
-
         if (findAndAttach() || tries >= 120) clearInterval(interval);
     }, 500);
 

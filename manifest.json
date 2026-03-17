@@ -1,19 +1,22 @@
 {
   "manifest_version": 3,
   "name": "Zoho Deluge Formatter",
-  "version": "1.1",
-  "description": "Formats Zoho Deluge code and detects missing semicolons in real-time.",
+  "version": "1.2",
+  "description": "Formats Zoho Deluge code, detects errors in real-time, and integrates AI assistance.",
 
   "permissions": [
     "scripting",
     "activeTab",
-    "tabs"
+    "tabs",
+    "storage"
   ],
 
   "host_permissions": [
     "https://*.zoho.com/*",
     "https://*.zohoapis.com/*",
-    "https://*.zoho.in/*"
+    "https://*.zoho.in/*",
+    "https://crm.zoho.com/*",
+    "https://api.anthropic.com/*"
   ],
 
   "background": {
@@ -21,6 +24,7 @@
   },
 
   "action": {
-    "default_title": "Format Deluge Code"
+    "default_title": "Deluge Formatter Settings",
+    "default_popup": "popup.html"
   }
 }

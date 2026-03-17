@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Deluge Formatter</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 340px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0f0f1a;
+      color: #e0e0e0;
+    }
+
+    /* ── Header ── */
+    .header {
+      background: linear-gradient(135deg, #1a1a2e, #16213e);
+      padding: 16px 18px;
+      border-bottom: 1px solid #2a2a3e;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .logo {
+      width: 32px; height: 32px;
+      background: #2962ff;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 13px; color: #fff; flex-shrink: 0;
+    }
+    .header h1 { font-size: 14px; font-weight: 600; color: #fff; }
+    .header p  { font-size: 11px; color: #888; margin-top: 1px; }
+
+    /* ── Body ── */
+    .body { padding: 16px 18px; }
+
+    /* ── Status ── */
+    .status {
+      display: flex; align-items: center; gap: 8px;
+      padding: 9px 12px; border-radius: 8px;
+      margin-bottom: 14px; font-size: 12px; font-weight: 500;
+    }
+    .status.connected    { background: rgba(46,125,50,0.2);  border: 1px solid rgba(46,125,50,0.4);  color: #81c784; }
+    .status.disconnected { background: rgba(229,57,53,0.15); border: 1px solid rgba(229,57,53,0.3);  color: #ef9a9a; }
+    .status.idle         { background: rgba(255,255,255,0.04); border: 1px solid #2a2a3e; color: #888; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .status.connected    .status-dot { background: #4caf50; box-shadow: 0 0 6px #4caf50; }
+    .status.disconnected .status-dot { background: #e53935; }
+    .status.idle         .status-dot { background: #555; }
+
+    /* ── Provider tabs ── */
+    label.section {
+      display: block; font-size: 11px; font-weight: 600;
+      color: #aaa; text-transform: uppercase;
+      letter-spacing: 0.5px; margin-bottom: 8px;
+    }
+    .provider-tabs {
+      display: flex; gap: 6px; margin-bottom: 14px;
+    }
+    .provider-tab {
+      flex: 1; padding: 8px 4px;
+      border-radius: 8px; border: 1px solid #2a2a3e;
+      background: #1a1a2e; color: #888;
+      font-size: 11px; font-weight: 600;
+      cursor: pointer; text-align: center;
+      transition: all 0.2s;
+      display: flex; flex-direction: column;
+      align-items: center; gap: 4px;
+    }
+    .provider-tab .icon { font-size: 16px; }
+    .provider-tab:hover { border-color: #444; color: #ccc; }
+    .provider-tab.active {
+      border-color: var(--provider-color);
+      background: var(--provider-bg);
+      color: #fff;
+      box-shadow: 0 0 8px var(--provider-glow);
+    }
+    /* per-provider colors set via JS */
+
+    /* ── Input ── */
+    .input-wrap { position: relative; margin-bottom: 12px; }
+    input[type="password"], input[type="text"] {
+      width: 100%; background: #1a1a2e;
+      border: 1px solid #2a2a3e; border-radius: 8px;
+      padding: 10px 40px 10px 12px;
+      font-size: 12px; color: #e0e0e0;
+      outline: none; transition: border-color 0.2s;
+      font-family: monospace;
+    }
+    input:focus { border-color: #2962ff; }
+    .toggle-vis {
+      position: absolute; right: 10px; top: 50%;
+      transform: translateY(-50%);
+      background: none; border: none; color: #666;
+      cursor: pointer; font-size: 14px; padding: 2px;
+    }
+    .toggle-vis:hover { color: #aaa; }
+
+    /* ── Key hint ── */
+    .key-hint {
+      font-size: 10px; color: #555;
+      margin-bottom: 10px; margin-top: -8px;
+    }
+
+    /* ── Buttons ── */
+    .btn-row { display: flex; gap: 8px; margin-bottom: 12px; }
+    button {
+      flex: 1; padding: 9px 12px;
+      border: none; border-radius: 8px;
+      font-size: 12px; font-weight: 600;
+      cursor: pointer; transition: background 0.2s, transform 0.1s;
+    }
+    button:active { transform: scale(0.97); }
+    .btn-save { background: #2962ff; color: #fff; }
+    .btn-save:hover { background: #1a4fcc; }
+    .btn-save:disabled { background: #333; color: #666; cursor: not-allowed; }
+    .btn-test { background: #1a2a1a; color: #81c784; border: 1px solid rgba(76,175,80,0.3); }
+    .btn-test:hover { background: #1e351e; }
+    .btn-test:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-clear { background: #2a1a1a; color: #ef9a9a; border: 1px solid rgba(229,57,53,0.3); flex: 0 0 auto; padding: 9px 14px; }
+    .btn-clear:hover { background: #351e1e; }
+
+    /* ── Message ── */
+    .msg {
+      font-size: 12px; padding: 8px 12px;
+      border-radius: 6px; margin-bottom: 12px; display: none;
+    }
+    .msg.success { background: rgba(46,125,50,0.2);  color: #81c784; border: 1px solid rgba(76,175,80,0.3); }
+    .msg.error   { background: rgba(229,57,53,0.15); color: #ef9a9a; border: 1px solid rgba(229,57,53,0.3); }
+    .msg.info    { background: rgba(41,98,255,0.15); color: #90caf9; border: 1px solid rgba(41,98,255,0.3); }
+
+    /* ── Divider ── */
+    hr { border: none; border-top: 1px solid #1e1e2e; margin: 12px 0; }
+
+    /* ── Features ── */
+    .features { font-size: 11px; color: #555; }
+    .features p { margin-bottom: 3px; }
+    .features .on  { color: #444; margin-right: 6px; }
+    .features .off { color: #333; margin-right: 6px; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="logo">FX</div>
+    <div>
+      <h1>Deluge Formatter</h1>
+      <p>Zoho Deluge AI Assistant</p>
+    </div>
+  </div>
+
+  <div class="body">
+
+    <!-- Status -->
+    <div class="status idle" id="statusBadge">
+      <div class="status-dot"></div>
+      <span id="statusText">Checking saved key...</span>
+    </div>
+
+    <!-- Provider selector -->
+    <label class="section">AI Provider</label>
+    <div class="provider-tabs">
+      <div class="provider-tab" data-provider="grok" style="--provider-color:#00b4d8;--provider-bg:rgba(0,180,216,0.15);--provider-glow:rgba(0,180,216,0.3)">
+        <span class="icon">𝕏</span>
+        <span>Grok</span>
+      </div>
+      <div class="provider-tab" data-provider="claude" style="--provider-color:#cc785c;--provider-bg:rgba(204,120,92,0.15);--provider-glow:rgba(204,120,92,0.3)">
+        <span class="icon">◆</span>
+        <span>Claude</span>
+      </div>
+      <div class="provider-tab" data-provider="gemini" style="--provider-color:#4285f4;--provider-bg:rgba(66,133,244,0.15);--provider-glow:rgba(66,133,244,0.3)">
+        <span class="icon">✦</span>
+        <span>Gemini</span>
+      </div>
+    </div>
+
+    <!-- API Key -->
+    <label class="section" id="keyLabel">API Key</label>
+    <div class="input-wrap">
+      <input type="password" id="apiKeyInput" placeholder="Paste your API key..." autocomplete="off" />
+      <button class="toggle-vis" id="toggleVis">👁</button>
+    </div>
+    <p class="key-hint" id="keyHint"></p>
+
+    <!-- Buttons -->
+    <div class="btn-row">
+      <button class="btn-save" id="saveBtn">💾 Save Key</button>
+      <button class="btn-test" id="testBtn">⚡ Test</button>
+      <button class="btn-clear" id="clearBtn" title="Remove key">✕</button>
+    </div>
+
+    <!-- Message -->
+    <div class="msg" id="msg"></div>
+
+    <hr>
+
+    <!-- Features -->
+    <div class="features">
+      <p><span class="on">✓</span>Real-time semicolon checker</p>
+      <p><span class="on">✓</span>One-click code formatter</p>
+      <p><span class="off">◐</span>AI chat assistant <span style="color:#2962ff">(next step)</span></p>
+    </div>
+
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
