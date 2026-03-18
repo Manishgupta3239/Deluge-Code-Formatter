@@ -13,10 +13,14 @@
 
   "host_permissions": [
     "https://*.zoho.com/*",
-    "https://*.zohoapis.com/*",
     "https://*.zoho.in/*",
-    "https://crm.zoho.com/*",
-    "https://api.anthropic.com/*"
+    "https://*.zoho.eu/*",
+    "https://*.zoho.com.au/*",
+    "https://*.zohoapis.com/*",
+    "https://*.zohoapis.in/*",
+    "https://api.anthropic.com/*",
+    "https://api.x.ai/*",
+    "https://generativelanguage.googleapis.com/*"
   ],
 
   "background": {
